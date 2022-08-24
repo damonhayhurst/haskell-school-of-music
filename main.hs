@@ -1,22 +1,26 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Avoid lambda" #-}
+{-# HLINT ignore "Use map once" #-}
 import Euterpea
 import Debug.Trace
 import GHC.Integer (Integer)
+import GHC.Real (Integral, Fractional)
+import GHC.Num (subtract)
+import Data.Bool (Bool)
 
--- hNote :: Dur -> Pitch -> Music Pitch  
--- hNote d p = note d p :=: note d (trans (-3) p)
+hNote :: Dur -> Pitch -> Music Pitch  
+hNote d p = note d p :=: note d (trans (-3) p)
 
-hNote :: Dur -> Pitch -> Int -> Music Pitch
-hNote d p i = note d p :=: note d (trans i p)
+-- hNote :: Dur -> Pitch -> Int -> Music Pitch
+-- hNote d p i = note d p :=: note d (trans i p)
 
 -- mel p1 = note qn p1 :=: note qn (trans (-3) p1)
 
-mel :: Music Pitch
-mel = hList qn [(C, 2), (C, 3), (C, 4)] (-3)
+-- mel :: Music Pitch
+-- mel = hList qn [(C, 2), (C, 3), (C, 4)] (-3)
 
-hList :: Dur -> [Pitch] -> Int -> Music Pitch
-hList d ps i = foldr (\ p -> (:+:) (hNote d p i)) (rest 0) ps
+-- hList :: Dur -> [Pitch] -> Int -> Music Pitch
+-- hList d ps i = foldr (\ p -> (:+:) (hNote d p i)) (rest 0) ps
 
 ---Chapter 2
 
@@ -91,34 +95,60 @@ ys = map (+) xs
 
 simple x y z = x * (y+ z)
 
-applyEach fn v = let f5 val function = function val
-                 in map (f5 v) fn
+-- applyEach fn v = let f5 val function = function val
+--                  in map (f5 v) fn
+applyEach fn v = map (\f -> f v) fn
+
+
 
 applyAll [] v = v
 applyAll (fn:fns) v = fn (applyAll fns v)
 
+
+
 length1 :: [a] -> Integer 
-length1 x = let count c = c + 1
-                len c [] = c
-                len c (x : xs) = len (count c) xs
+
+-- length1 x = let count c = c + 1
+--                 len c [] = c
+--                 len c (x : xs) = len (count c) xs
+--             in len 0 x
+
+length1 x = let len c [] = c
+                len c (x : xs) = len (c + 1) xs
             in len 0 x
 
+
 doubleEach :: [Integer] -> [Integer]
-doubleEach x = let double d = d*2
-                    in map double x
+
+-- doubleEach x = let double d = d*2
+--                     in map double x
+doubleEach = map (*2)
+
 
 pairAndOne :: [Integer] -> [(Integer, Integer)]
-pairAndOne x = let andOne n = (n, n+1)
-                in map andOne x
+
+-- pairAndOne x = let andOne n = (n, n+1)
+--                 in map andOne x
+
+pairAndOne = map (\n -> (n, n+1))
+
 
 addEachPair :: [(Integer, Integer)] -> [Integer]
-addEachPair x = let addPair (n1, n2) = n1 + n2
-                in map addPair x
+
+-- addEachPair x = let addPair (n1, n2) = n1 + n2
+--                 in map addPair x
+
+addEachPair = map (uncurry (+))
 
 addPairsPointwise :: [(Integer, Integer)] -> (Integer, Integer)
-addPairsPointwise x = let add (a1, a2) (c, d) = (a1 + c, a2 + d)
-                          addPair a [] = a
-                          addPair a (x:xs) = addPair (add a x) xs
+
+-- addPairsPointwise x = let add (a1, a2) (c, d) = (a1 + c, a2 + d)
+--                           addPair a [] = a
+--                           addPair a (x:xs) = addPair (add a x) xs
+--                       in addPair (0,0) x
+
+addPairsPointwise x = let addPair a [] = a
+                          addPair a (x:xs) = addPair ((\(a1, a2) (c, d) -> (a1 + c, a2 + d)) a x) xs
                       in addPair (0,0) x
 
 fuse :: [Dur] -> [Dur -> Music a] -> [Music a]  
@@ -142,10 +172,12 @@ minAbsPitch x = minimum x
 -- minAbsPitchR [] m = m
 -- minAbsPitchR (x:xs) m = minAbsPitchR xs (min x m)
 
-chrom :: Pitch -> Pitch -> Music Pitch
-chrom p1 p2 = let scale p1 p2 = [(absPitch p1) .. (absPitch p2)]
-              in line (map (note qn . pitch) (scale p1 p2))  
 
+chrom :: Pitch -> Pitch -> Music Pitch
+
+chrom p1 p2 = let scale p1 p2 = [absPitch p1 .. absPitch p2]
+              in line (map (note qn . pitch) (scale p1 p2))  
+              
 mkScale :: Pitch -> [Int] -> Music Pitch
 mkScale p [] = note qn p
 mkScale p (int:ints) = note qn p :+: mkScale(trans int p) ints
@@ -159,10 +191,16 @@ song = frere :+: frere :+: dormez :+: dormez :+: sonnez :+: sonnez :+: dong :+: 
 
 -- encrypt = foldr toEnum Int
 
+
 twice :: (a -> a) -> a -> a
-twice f a = f(f a) 
+
+-- twice f a = f(f a) 
+
+twice f = f . f
+
 
 power :: (a -> a) -> Int -> a -> a
+
 power f n a = if n==0 then a else f(power f (n-1) a)
 
 -- fix :: (a -> a) -> a -> a
@@ -176,8 +214,57 @@ remainder a b = fix (\f n -> if n < b then n else n - b) a
 apPairs :: [AbsPitch] -> [AbsPitch] -> [(AbsPitch, AbsPitch)]
 apPairs aps1 aps2 = [(ap1, ap2) | ap1 <- aps1, ap2 <- aps2, (\a1 a2 -> a1 - a2 > 2 && a1 - a2 < 8) ap1 ap2] 
 
-q = apPairs [52, 35, 55, 55] [45, 32, 60, 50]
+-- q = apPairs [52, 35, 55, 55] [45, 32, 60, 50]
 
-apChords :: [(AbsPitch, AbsPitch)] -> [Music Pitch]
-apChords apcs = line [chord [note d1 (pitch a1), note qn (pitch a2)] | (a1, a2) <- apcs, let d1 = if even a1 then sn else en]
+apChords :: [(AbsPitch, AbsPitch)] -> Music Pitch
+apChords apcs = line [chord [note d1 (pitch a1), note en (pitch a2)] | (a1, a2) <- apcs, let d1 = if even a1 then sn else en]
 
+hList d = line . map (hNote d)
+-- unsolved
+
+--5.6
+-- addDur d ns = let f n = n d
+--                 in line (map f ns)
+
+addDur :: Dur -> [Dur -> Music a] -> Music a
+addDur d ns = line $ map (\n -> n d) ns
+
+addOneAndHalf = map ((/2) . (+1))
+addOneAndHalfMapTwice xs = map (/2) (map (+1) xs)
+
+f1Andf2 = (\x a -> map ($ a) x) (map (*) [1, 2, 3, 4, 5] ) 5
+
+
+--- chapter 6
+
+
+properRow :: Music Pitch -> Bool
+properRow x = let pitches = [0..11]
+                  l@(Prim (Note _ _) : _) = lineToList x
+                  pitchInList [] (Prim (Note _ (_, _)): _) = False
+                  pitchInList ps [] = null ps
+                  pitchInList ps (Prim (Note _ (r, _)) : ns) = pitchInList (filter (/= pcToInt r) ps) ns
+              in pitchInList pitches l
+
+
+x = line [c 4 en, cs 5 en, d 5 en, ds 5 en, e 4 en, f 3 en, fs 3 en, g 3 en, rest en, gs 4 en, a 3 en, as 3 qn, b 3 en]
+y = line [c 4 en, cs 5 en, d 5 en, ds 5 en, e 4 en, f 3 en, fs 3 en, g 3 en, gs 4 en]
+z = line [c 4 en, cs 5 en, d 5 en, ds 5 en, e 4 en, f 3 en, fs 3 en, g 3 en, gs 4 en, a 3 en, as 3 en, b 3 en, b 3 en]
+
+palin :: Music Pitch -> Bool
+palin x = let getPitches (Prim (Note _ (p, o))) = (p, o)
+              l = map getPitches (lineToList x)
+          in l == reverse l
+
+
+p = line [c 4 sn, cs 5 en, rest qn, d 5 en, rest en]
+q = line [c 4 sn, cs 5 en, rest qn]
+
+retroPitches :: Music Pitch -> Music Pitch
+retroPitches x = let p = lineToList x
+                     r = reverse p
+                     repitch [] [] nps = nps
+                     repitch (Prim (Note d _): ps) (Prim (Note _ rp): rps) nps = repitch ps rps (nps ++ [note d rp])
+                     repitch (Prim (Rest d): ps) rps nps = repitch ps rps (nps ++ [rest d])
+                     repitch ps (_:rps) nps = repitch ps rps nps
+                 in line(repitch p r [])
