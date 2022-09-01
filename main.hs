@@ -7,6 +7,7 @@ import GHC.Integer (Integer)
 import GHC.Real (Integral, Fractional)
 import GHC.Num (subtract)
 import Data.Bool (Bool)
+import Sound.Tidal.Context (pit2)
 
 hNote :: Dur -> Pitch -> Music Pitch  
 hNote d p = note d p :=: note d (trans (-3) p)
@@ -268,3 +269,126 @@ retroPitches x = let p = lineToList x
                      repitch (Prim (Rest d): ps) rps nps = repitch ps rps (nps ++ [rest d])
                      repitch ps (_:rps) nps = repitch ps rps nps
                  in line(repitch p r [])
+
+mordent :: Int -> Music Pitch -> Music Pitch
+mordent i (Prim (Note d p)) = note (d/8) p :+: note (d/8) (trans i p) :+: note (d*3/4) p
+mordent i (Modify (Tempo r) m) = tempo r (mordent i m)
+mordent i (Modify c m) = Modify c (mordent i m)
+mordent _ _ = 
+    error "mordent: input must be a single note"
+
+turn :: Music Pitch -> Music Pitch
+turn (Prim (Note d p)) = let fifth = d / 5 
+                         in note fifth p :+: note fifth (trans 1 p) :+: note fifth p :+: note fifth (trans (-1) p) :+: note fifth p
+turn (Modify (Tempo r) m) = tempo r (turn m)
+turn (Modify c m) = Modify c (turn m)
+turn _ =
+    error "turn: input must be a single note" 
+
+appoggiatura :: Music Pitch -> [Music Pitch] -> Music Pitch
+appoggiatura (Prim (Note d p)) (Prim (Note da pa): as) = note da pa :+: appoggiatura (note (d - da) p) as 
+appoggiatura (Prim (Note d p)) (Prim (Rest da): as) = rest da :+: appoggiatura (note (d - da) p) as
+appoggiatura (Prim (Note d p)) [] = note d p
+appoggiatura _ _ =
+    error "appoggiatura: can only add a note or rest to a note"
+
+allPerc :: Music Pitch
+allPerc = instrument Percussion $ line $ map (\p -> note qn (pitch p)) [35..86]
+
+
+trill :: Int -> Dur -> Music Pitch -> Music Pitch
+trill i sDur (Prim (Note tDur p)) = if sDur >= tDur then note tDur p
+                                    else note sDur p :+: trill (negate i) sDur (note (tDur - sDur) (trans i p))
+trill i d (Modify (Tempo r) m) = tempo r (trill i (d * r) m)
+trill i d (Modify c m) = Modify c (trill i d m)
+trill _ _ _ = 
+    error "trill: input must be a single note."  
+
+trill' :: Int -> Dur -> Music Pitch -> Music Pitch
+trill' i sDur m = trill (negate i) sDur (transpose i m)
+
+trilln :: Int -> Int -> Music Pitch -> Music Pitch
+trilln i nTimes m = trill i (dur m/fromIntegral nTimes) m
+
+trilln' :: Int -> Int -> Music Pitch  -> Music Pitch
+trilln' i nTimes m = trilln (negate i) nTimes (transpose i m)
+
+roll :: Dur -> Music Pitch -> Music Pitch
+rolln :: Int -> Music Pitch -> Music Pitch
+
+roll dur m = trill 0 dur m
+rolln nTimes m = trilln 0 nTimes m
+
+funkGroove :: Music Pitch
+funkGroove = let p1 = perc LowTom qn
+                 p2 = perc AcousticSnare en
+             in tempo 3 $ cut 8 $ forever
+                ((p1 :+: qnr :+: p2  :+: qnr :+: p2 :+:
+                  p1 :+: p1  :+: qnr :+: p2  :+: enr)
+                  :=: roll en (perc ClosedHiHat 2))    
+
+scaleVolume :: Rational -> Music (Pitch, Volume) -> Music (Pitch, Volume)
+scaleVolume s = mMap (\(p, v) -> (p, round (s * fromIntegral v)))
+
+-- retro :: Music a -> Music a
+-- retro n@(Prim _) = n
+-- retro (Modify c m) = Modify c (retro m)
+-- retro (m1 :+: m2) = retro m2 :+: retro m1
+-- retro (m1 :=: m2) =
+--     let d1 = dur m1
+--         d2 = dur m2
+--     in if d1 > d2 
+--        then retro m1 :=: (rest (d1 - d2) :+: retro m2)
+--        else (rest (d2 - d1) :+: retro m1) :=: retro m2
+
+ 
+foldRetro :: Music a -> Music a
+foldRetro = mFold Prim swapM shortenM Modify where
+    recFold = mFold Prim swapM shortenM Modify 
+    swapM m1 m2 = (:+:) (recFold m2) (recFold m1)
+    shortenM m1 m2 = let d1 = dur m1
+                         d2 = dur m2
+                     in if d1 > d2
+                        then recFold m1 :=: (rest (d1 - d2) :+: recFold m2)
+                        else (rest (d2 - d1) :+: recFold m1) :=: recFold m2
+
+insideOut :: Music a -> Music a
+insideOut = mFold Prim (:=:) (:+:) Modify
+
+-- insideOut $ c 4 qn :+: rest qn
+
+x1 = g 4 qn :=: (c 4 en :+: d 4 en :+: e 4 en)
+x2 = g 4 qn :=: tempo (3/2) (c 4 en :+: d 4 en :+: e 4 en)
+
+rep :: (Music a -> Music a) -> (Music a -> Music a) -> Int -> Music a -> Music a
+rep f g 0 m = rest 0
+rep f g n m = m :=: g (rep f g (n - 1) (f m))
+
+run = rep (transpose 5) (offset tn) 8 (c 4 tn)
+cascade = rep (transpose 4) (offset en) 8 run
+cascades = rep id (offset sn) 2 cascade
+final = cascades :+: retro cascades
+
+run' = rep (offset tn) (transpose 5) 8 (c 4 tn)
+cascade' = rep (offset en) (transpose 4) 8 run'
+cascades' = rep (offset sn) id 2 cascade'
+final' = cascades' :+: retro cascades'
+
+-- toIntervals :: [Integer] -> [Integer]
+-- toIntervals n = let intervals s [] = s
+--                     intervals s (n:ns) = intervals (s ++ [head ns - n]) ns
+--                 in intervals [] n
+
+s1 = [1, 5, 3, 6, 5, 0, 1, 1]
+
+toIntervals :: [Integer] -> [[Integer]]
+toIntervals n = let intervals n = zipWith (-) (tail n) n
+                    repeat [] s = s
+                    repeat n s = repeat (intervals n) (s ++ [n])
+                in repeat n []
+
+getHeads :: [[Integer]] -> [Integer]
+getHeads = map head
+
+intervalClosure :: [Integer] -> [Integer]
+intervalClosure = reverse . getHeads . toIntervals
